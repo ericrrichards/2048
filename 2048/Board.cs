@@ -1,17 +1,27 @@
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Drawing;
 using System.Linq;
-using System.Runtime.InteropServices.WindowsRuntime;
 
 namespace _2048 {
+    public class BoardState {
+        public Tile[][] Tiles { get; set; }
+        public bool Won { get; set; }
+        public bool Lost { get; set; }
+        public bool KeepPlaying { get; set; }
+
+        public BoardState(int size) {
+            Tiles = new Tile [size][];
+            for (int i = 0; i < size; i++) {
+                Tiles[i] = new Tile[size];
+            }
+            Won = false;
+            Lost = false;
+            KeepPlaying = false;
+        }
+    }
+
     public class Board {
-        private const int BoardSizePx = 500;
-
-        private const int BorderBezelPx = 5;
-        private static readonly Color Background = Color.FromArgb(0xbb, 0xad, 0xa0);
-
         private readonly Tile[][] _tiles;
         private Random _rand;
 
@@ -21,16 +31,33 @@ namespace _2048 {
 
         public int Score { get; set; }
 
-        public Board() {
-            _tiles = new Tile[4][];
-            for (var x = 0; x < 4; x++) {
-                _tiles[x] = new Tile[4];
-                for (var y = 0; y < 4; y++) {
+        public int Size { get; private set; }
+
+        public Board(int size=4) {
+            Size = size;
+            _tiles = new Tile[Size][];
+            for (var x = 0; x < Size; x++) {
+                _tiles[x] = new Tile[Size];
+                for (var y = 0; y < Size; y++) {
                     _tiles[x][y] = new Tile(x,y);
                 }
             }
-
         }
+
+        public BoardState GetState() {
+            var ret = new BoardState(Size);
+            for (var x = 0; x < Size; x++) {
+                for (var y = 0; y < Size; y++) {
+                    ret.Tiles[x][y] = GetTile(x, y);
+                }
+            }
+            ret.Won = Won;
+            ret.Lost = Over;
+            ret.KeepPlaying = KeepPlaying;
+
+            return ret;
+        }
+        
 
         public void StartGame() {
             _rand = new Random();
@@ -40,23 +67,9 @@ namespace _2048 {
             KeepPlaying = false;
             Score = 0;
 
-            AddRandomTile();
-            AddRandomTile();
+            AddRandomTile(false);
+            AddRandomTile(false);
 
-        }
-
-        public void Paint(Graphics g) {
-            var brush = new SolidBrush(Background);
-
-            var path = RoundedRectangle.Create(0, 0, BoardSizePx, BoardSizePx, BorderBezelPx);
-            g.FillPath(brush, path);
-
-            for (int x = 0; x < 4; x++) {
-                for (int y = 0; y < 4; y++) {
-                    var tile = _tiles[x][y];
-                    tile.Paint(g);
-                }
-            }
         }
 
         public void Move(Direction dir) {
@@ -80,8 +93,9 @@ namespace _2048 {
                         var next = GetTile(positions.Item2);
 
                         if (next != null && next.Value == tile.Value && next.MergedFrom == null) {
-                            var merged = new Tile(positions.Item2, tile.Value*2);
-                            merged.MergedFrom = new Tuple<Tile, Tile>(tile, next);
+                            var merged = new Tile(positions.Item2, tile.Value*2) {
+                                MergedFrom = new Tuple<Tile, Tile>(tile, next)
+                            };
 
                             InsertTile(merged);
                             RemoveTile(tile);
@@ -117,8 +131,8 @@ namespace _2048 {
         private bool MovesAvailable() { return CellsAvailable() || TileMatchesAvailable(); }
 
         private bool TileMatchesAvailable() {
-            for (int x = 0; x < 4; x++) {
-                for (int y = 0; y < 4; y++) {
+            for (int x = 0; x < Size; x++) {
+                for (int y = 0; y < Size; y++) {
                     var tile = GetTile(x, y);
                     if (tile.Value > 0) {
                         for (var dir = Direction.Left; dir <= Direction.Down; dir++) {
@@ -137,11 +151,11 @@ namespace _2048 {
 
         private bool IsGameTerminated() { return (Over || (Won && !KeepPlaying)); }
 
-        private void AddRandomTile() {
+        private void AddRandomTile(bool newTile=true) {
             if (CellsAvailable()) {
                 var value = _rand.NextDouble() < 0.9 ? 2 : 4;
                 var tile = new Tile(RandomAvailableCell(), value);
-
+                tile.NewTile = newTile;
                 InsertTile(tile);
             }
         }
@@ -155,8 +169,8 @@ namespace _2048 {
 
         private List<Point> AvailableCells() {
             var ret = new List<Point>();
-            for (int x = 0; x < 4; x++) {
-                for (int y = 0; y < 4; y++) {
+            for (int x = 0; x < Size; x++) {
+                for (int y = 0; y < Size; y++) {
                     var tile = GetTile(x, y);
                     if (tile.Value == 0) {
                         ret.Add(new Point(x,y));
@@ -194,22 +208,23 @@ namespace _2048 {
             return tile != null && tile.Value == 0;
         }
 
-        private static bool WithinBounds(Point position) { return position.X >= 0 && position.Y >= 0 && position.X < 4 && position.Y < 4; }
+        private bool WithinBounds(Point position) { return position.X >= 0 && position.Y >= 0 && position.X < Size && position.Y < Size; }
 
         private void PrepareTiles() {
-            for (int x = 0; x < 4; x++) {
-                for (int y = 0; y < 4; y++) {
+            for (int x = 0; x < Size; x++) {
+                for (int y = 0; y < Size; y++) {
                     var tile = _tiles[x][y];
                     tile.MergedFrom = null;
                     tile.SavePosition();
+                    tile.NewTile = false;
                 }
             }
         }
 
-        private static Tuple<List<int>, List<int>> BuildTraversals(Point vector) {
+        private Tuple<List<int>, List<int>> BuildTraversals(Point vector) {
             var ret = new Tuple<List<int>, List<int>>(new List<int>(), new List<int>());
 
-            for (int pos = 0; pos < 4; pos++) {
+            for (int pos = 0; pos < Size; pos++) {
                 ret.Item1.Add(pos);
                 ret.Item2.Add(pos);
             }
